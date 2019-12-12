@@ -28,7 +28,8 @@ internal class ConnectionPipeline(
     socket: Socket,
     overProxy: Boolean,
     tasks: Channel<RequestTask>,
-    parentContext: CoroutineContext
+    parentContext: CoroutineContext,
+    allowHalfClose: Boolean
 ) : CoroutineScope {
     override val coroutineContext: CoroutineContext = parentContext + Job()
 
@@ -52,7 +53,7 @@ internal class ConnectionPipeline(
                     throw cause
                 }
 
-                task.request.write(networkOutput, task.context, overProxy)
+                task.request.write(networkOutput, task.context, overProxy, allowHalfClose)
                 networkOutput.flush()
             }
         } catch (_: ClosedChannelException) {

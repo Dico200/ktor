@@ -13,14 +13,15 @@ import io.ktor.http.cio.*
 import io.ktor.http.cio.websocket.*
 import io.ktor.http.content.*
 import io.ktor.util.date.*
-import kotlinx.coroutines.*
 import io.ktor.utils.io.*
 import io.ktor.utils.io.errors.*
+import kotlinx.coroutines.*
 import kotlin.coroutines.*
 
 internal suspend fun HttpRequestData.write(
     output: ByteWriteChannel, callContext: CoroutineContext,
-    overProxy: Boolean
+    overProxy: Boolean,
+    allowHalfClose: Boolean
 ) {
     val builder = RequestResponseBuilder()
 
@@ -65,17 +66,59 @@ internal suspend fun HttpRequestData.write(
     try {
         when (content) {
             is OutgoingContent.NoContent -> return
-            is OutgoingContent.ByteArrayContent -> channel.writeFully(content.bytes())
-            is OutgoingContent.ReadChannelContent -> content.readFrom().copyAndClose(channel)
-            is OutgoingContent.WriteChannelContent -> content.writeTo(channel)
-            is OutgoingContent.ProtocolUpgrade -> UnsupportedContentTypeException(content)
+            is OutgoingContent.ByteArrayContent -> content.writeTo(channel, allowHalfClose)
+            is OutgoingContent.ReadChannelContent -> content.writeTo(channel, allowHalfClose)
+            is OutgoingContent.WriteChannelContent -> content.writeTo(callContext, channel, allowHalfClose)
+            is OutgoingContent.ProtocolUpgrade -> throw UnsupportedContentTypeException(content)
         }
     } catch (cause: Throwable) {
         channel.close(cause)
     } finally {
         channel.flush()
-        chunkedJob?.channel?.close()
-        chunkedJob?.join()
+        if (allowHalfClose) {
+            chunkedJob?.channel?.close()
+            chunkedJob?.join()
+        }
+    }
+}
+
+/**
+ * Utils function that writes content into specified [channel] and closes it if half close is allowed.
+ */
+private suspend fun OutgoingContent.ByteArrayContent.writeTo(channel: ByteWriteChannel, allowHalfClose: Boolean) {
+    channel.writeFully(bytes())
+    if (allowHalfClose) {
+        channel.close()
+    }
+}
+
+/**
+ * Utils function that writes content into specified [channel] and closes it if half close is allowed.
+ */
+private suspend fun OutgoingContent.ReadChannelContent.writeTo(channel: ByteWriteChannel, allowHalfClose: Boolean) {
+    if (allowHalfClose) {
+        readFrom().copyAndClose(channel)
+    } else {
+        readFrom().copyTo(channel)
+    }
+}
+
+/**
+ * Utils function that writes content into specified [channel] and closes it if half close is allowed.
+ */
+private suspend fun OutgoingContent.WriteChannelContent.writeTo(
+    coroutineContext: CoroutineContext,
+    channel: ByteWriteChannel,
+    allowHalfClose: Boolean
+) {
+    if (allowHalfClose) {
+        writeTo(channel)
+    } else {
+        val proxyChannel = GlobalScope.reader(coroutineContext) {
+            this.channel.copyTo(channel, Long.MAX_VALUE)
+        }.channel
+
+        writeTo(proxyChannel)
     }
 }
 

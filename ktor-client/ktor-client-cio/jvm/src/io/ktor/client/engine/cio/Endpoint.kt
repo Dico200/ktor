@@ -95,11 +95,11 @@ internal class Endpoint(
 
             val timeout = config.requestTimeout
             val responseData = if (timeout == 0L) {
-                request.write(output, callContext, overProxy)
+                request.write(output, callContext, overProxy, config.endpoint.allowHalfClose)
                 readResponse(requestTime, request, input, output, callContext)
             } else {
                 withTimeout(timeout) {
-                    request.write(output, callContext, overProxy)
+                    request.write(output, callContext, overProxy, config.endpoint.allowHalfClose)
                     readResponse(requestTime, request, input, output, callContext)
                 }
             }
@@ -128,7 +128,8 @@ internal class Endpoint(
             socket,
             overProxy,
             deliveryPoint,
-            coroutineContext
+            coroutineContext,
+            config.endpoint.allowHalfClose
         )
 
         pipeline.pipelineContext.invokeOnCompletion { releaseConnection() }
