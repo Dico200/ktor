@@ -15,8 +15,6 @@ import kotlin.native.concurrent.*
 private const val MAX_CHUNK_SIZE_LENGTH = 128
 private const val CHUNK_BUFFER_POOL_SIZE = 2048
 
-private const val DEFAULT_BYTE_BUFFER_SIZE = 4088
-
 @ThreadLocal
 private val ChunkSizeBufferPool: ObjectPool<StringBuilder> =
     object : DefaultPool<StringBuilder>(CHUNK_BUFFER_POOL_SIZE) {
@@ -102,7 +100,7 @@ suspend fun encodeChunked(output: ByteWriteChannel, input: ByteReadChannel) {
 
     try {
         input.readSuspendableSession {
-            while (await(DEFAULT_BYTE_BUFFER_SIZE)) {
+            while (await()) {
                 val content = request() ?: return@readSuspendableSession
                 output.writeChunk(content, view)
             }
